@@ -86,8 +86,7 @@ func main() {
 	}
 
 	run(logger, "git", "remote", "add", "origin", *url)
-	runOrFail(logger, "git", "fetch", "--depth=1", "--recurse-submodules=yes", "origin", *revision)
-	runOrFail(logger, "git", "reset", "--hard", "FETCH_HEAD")
-
+	run(logger, "git", "pull", "--recurse-submodules=yes", "origin")
+	runOrFail(logger, "git", "checkout", *revision)
 	logger.Infof("Successfully cloned %q @ %q in path %q", *url, *revision, dir)
 }
