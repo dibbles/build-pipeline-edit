@@ -142,7 +142,7 @@ func TestHelmDeployPipelineRun(t *testing.T) {
 func getGoHelloworldGitResource(namespace string) *v1alpha1.PipelineResource {
 	return tb.PipelineResource(sourceResourceName, namespace, tb.PipelineResourceSpec(
 		v1alpha1.PipelineResourceTypeGit,
-		tb.PipelineResourceSpecParam("Url", "https://github.com/dibbles/build-pipeline"),
+		tb.PipelineResourceSpecParam("Url", "https://github.com/knative/build-pipeline"),
 	))
 }
 
