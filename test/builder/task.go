@@ -68,9 +68,6 @@ type TaskRunOutputsOp func(*v1alpha1.TaskRunOutputs)
 // ResolvedTaskResourcesOp is an operation which modify a ResolvedTaskResources struct.
 type ResolvedTaskResourcesOp func(*resources.ResolvedTaskResources)
 
-// OwnerReferenceOp is an operation which modify an OwnerReference struct.
-type OwnerReferenceOp func(*metav1.OwnerReference)
-
 // StepStateOp is an operation which modify a StepStep struct.
 type StepStateOp func(*v1alpha1.StepState)
 
@@ -153,13 +150,6 @@ func Step(name, image string, ops ...ContainerOp) TaskSpecOp {
 			op(step)
 		}
 		spec.Steps = append(spec.Steps, *step)
-	}
-}
-
-// TaskTimeout sets the timeout duration to the TaskSpec.
-func TaskTimeout(d time.Duration) TaskSpecOp {
-	return func(spec *v1alpha1.TaskSpec) {
-		spec.Timeout = &metav1.Duration{Duration: d}
 	}
 }
 
@@ -312,6 +302,34 @@ func StepState(ops ...StepStateOp) TaskRunStatusOp {
 	}
 }
 
+// TaskRunStartTime sets the start time to the TaskRunStatus.
+func TaskRunStartTime(startTime time.Time) TaskRunStatusOp {
+	return func(s *v1alpha1.TaskRunStatus) {
+		s.StartTime = &metav1.Time{Time: startTime}
+	}
+}
+
+// TaskRunTimeout sets the timeout duration to the TaskRunSpec.
+func TaskRunTimeout(d time.Duration) TaskRunSpecOp {
+	return func(spec *v1alpha1.TaskRunSpec) {
+		spec.Timeout = &metav1.Duration{Duration: d}
+	}
+}
+
+// TaskRunNodeSelector sets the NodeSelector to the PipelineSpec.
+func TaskRunNodeSelector(values map[string]string) TaskRunSpecOp {
+	return func(spec *v1alpha1.TaskRunSpec) {
+		spec.NodeSelector = values
+	}
+}
+
+// TaskRunAffinity sets the Affinity to the PipelineSpec.
+func TaskRunAffinity(affinity *corev1.Affinity) TaskRunSpecOp {
+	return func(spec *v1alpha1.TaskRunSpec) {
+		spec.Affinity = affinity
+	}
+}
+
 // StateTerminated set Terminated to the StepState.
 func StateTerminated(exitcode int) StepStateOp {
 	return func(s *v1alpha1.StepState) {
@@ -332,13 +350,6 @@ func TaskRunOwnerReference(kind, name string, ops ...OwnerReferenceOp) TaskRunOp
 			op(o)
 		}
 		tr.ObjectMeta.OwnerReferences = append(tr.ObjectMeta.OwnerReferences, *o)
-	}
-}
-
-// OwnerReferenceAPIVersion sets the APIVersion to the OwnerReference.
-func OwnerReferenceAPIVersion(version string) OwnerReferenceOp {
-	return func(o *metav1.OwnerReference) {
-		o.APIVersion = version
 	}
 }
 
@@ -459,10 +470,6 @@ func TaskRunInputsResource(name string, ops ...TaskResourceBindingOp) TaskRunInp
 	return func(i *v1alpha1.TaskRunInputs) {
 		binding := &v1alpha1.TaskResourceBinding{
 			Name: name,
-			ResourceRef: v1alpha1.PipelineResourceRef{
-				// TODO: this seems like an odd default?
-				Name: name,
-			},
 		}
 		for _, op := range ops {
 			op(binding)
@@ -475,6 +482,13 @@ func TaskRunInputsResource(name string, ops ...TaskResourceBindingOp) TaskRunInp
 func TaskResourceBindingRef(name string) TaskResourceBindingOp {
 	return func(b *v1alpha1.TaskResourceBinding) {
 		b.ResourceRef.Name = name
+	}
+}
+
+// TaskResourceBindingResourceSpec set the PipelineResourceResourceSpec to the TaskResourceBinding.
+func TaskResourceBindingResourceSpec(spec *v1alpha1.PipelineResourceSpec) TaskResourceBindingOp {
+	return func(b *v1alpha1.TaskResourceBinding) {
+		b.ResourceSpec = spec
 	}
 }
 

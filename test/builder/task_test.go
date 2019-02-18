@@ -48,7 +48,6 @@ func TestTask(t *testing.T) {
 		tb.TaskVolume("foo", tb.VolumeSource(corev1.VolumeSource{
 			HostPath: &corev1.HostPathVolumeSource{Path: "/foo/bar"},
 		})),
-		tb.TaskTimeout(2*time.Minute),
 	))
 	expectedTask := &v1alpha1.Task{
 		ObjectMeta: metav1.ObjectMeta{Name: "test-task", Namespace: "foo"},
@@ -73,7 +72,6 @@ func TestTask(t *testing.T) {
 					Type: v1alpha1.PipelineResourceTypeImage,
 				}},
 			},
-			Timeout: &metav1.Duration{Duration: 2 * time.Minute},
 			Volumes: []corev1.Volume{{
 				Name: "foo",
 				VolumeSource: corev1.VolumeSource{
@@ -130,6 +128,7 @@ func TestTaskRunWitTaskRef(t *testing.T) {
 				),
 				tb.TaskRunInputsResource(anotherGitResource.Name,
 					tb.TaskResourceBindingPaths("source-folder"),
+					tb.TaskResourceBindingResourceSpec(&v1alpha1.PipelineResourceSpec{Type: v1alpha1.PipelineResourceTypeCluster}),
 				),
 				tb.TaskRunInputsParam("iparam", "ivalue"),
 			),
@@ -167,11 +166,9 @@ func TestTaskRunWitTaskRef(t *testing.T) {
 					},
 					Paths: []string{"source-folder"},
 				}, {
-					Name: "another-git-resource",
-					ResourceRef: v1alpha1.PipelineResourceRef{
-						Name: "another-git-resource",
-					},
-					Paths: []string{"source-folder"},
+					Name:         "another-git-resource",
+					ResourceSpec: &v1alpha1.PipelineResourceSpec{Type: v1alpha1.PipelineResourceType("cluster")},
+					Paths:        []string{"source-folder"},
 				}},
 				Params: []v1alpha1.Param{{Name: "iparam", Value: "ivalue"}},
 			},
@@ -210,6 +207,7 @@ func TestTaskRunWithTaskSpec(t *testing.T) {
 		),
 		tb.TaskTrigger("mytrigger", v1alpha1.TaskTriggerTypeManual),
 		tb.TaskRunServiceAccount("sa"),
+		tb.TaskRunTimeout(2*time.Minute),
 	))
 	expectedTaskRun := &v1alpha1.TaskRun{
 		ObjectMeta: metav1.ObjectMeta{
@@ -228,6 +226,7 @@ func TestTaskRunWithTaskSpec(t *testing.T) {
 				Type: v1alpha1.TaskTriggerTypeManual,
 			},
 			ServiceAccount: "sa",
+			Timeout:        &metav1.Duration{Duration: 2 * time.Minute},
 		},
 	}
 	if d := cmp.Diff(expectedTaskRun, taskRun); d != "" {

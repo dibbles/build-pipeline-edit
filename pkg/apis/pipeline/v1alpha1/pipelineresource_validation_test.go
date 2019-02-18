@@ -40,6 +40,9 @@ func TestResourceValidation_Invalid(t *testing.T) {
 				Spec: PipelineResourceSpec{
 					Type: PipelineResourceTypeCluster,
 					Params: []Param{{
+						Name:  "name",
+						Value: "test-cluster-resource",
+					}, {
 						Name:  "url",
 						Value: "10.10.10",
 					}, {
@@ -67,6 +70,9 @@ func TestResourceValidation_Invalid(t *testing.T) {
 				Spec: PipelineResourceSpec{
 					Type: PipelineResourceTypeCluster,
 					Params: []Param{{
+						Name:  "name",
+						Value: "test-cluster-resource",
+					}, {
 						Name:  "url",
 						Value: "http://10.10.10.10",
 					}, {
@@ -82,6 +88,30 @@ func TestResourceValidation_Invalid(t *testing.T) {
 			want: apis.ErrMissingField("username param"),
 		},
 		{
+			name: "cluster with missing name",
+			res: PipelineResource{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      "test-cluster-resource",
+					Namespace: "foo",
+				},
+				Spec: PipelineResourceSpec{
+					Type: PipelineResourceTypeCluster,
+					Params: []Param{{
+						Name:  "url",
+						Value: "http://10.10.10.10",
+					}, {
+						Name:  "cadata",
+						Value: "bXktY2x1c3Rlci1jZXJ0Cg",
+					}, {
+						Name:  "token",
+						Value: "my-token",
+					},
+					},
+				},
+			},
+			want: apis.ErrMissingField("name param"),
+		},
+		{
 			name: "cluster with missing cadata",
 			res: PipelineResource{
 				ObjectMeta: metav1.ObjectMeta{
@@ -91,6 +121,9 @@ func TestResourceValidation_Invalid(t *testing.T) {
 				Spec: PipelineResourceSpec{
 					Type: PipelineResourceTypeCluster,
 					Params: []Param{{
+						Name:  "Name",
+						Value: "test-cluster-resource",
+					}, {
 						Name:  "url",
 						Value: "http://10.10.10.10",
 					}, {
@@ -167,6 +200,17 @@ func TestResourceValidation_Invalid(t *testing.T) {
 				},
 			},
 			want: apis.ErrMissingField("spec.params.location"),
+		}, {
+			name: "invalid resoure type",
+			res: PipelineResource{
+				ObjectMeta: metav1.ObjectMeta{
+					Name: "invalid-resource",
+				},
+				Spec: PipelineResourceSpec{
+					Type: "not-supported",
+				},
+			},
+			want: apis.ErrInvalidValue("spec.type", "not-supported"),
 		},
 	}
 	for _, tt := range tests {
@@ -188,6 +232,9 @@ func TestClusterResourceValidation_Valid(t *testing.T) {
 		Spec: PipelineResourceSpec{
 			Type: PipelineResourceTypeCluster,
 			Params: []Param{{
+				Name:  "name",
+				Value: "test-cluster-resource",
+			}, {
 				Name:  "url",
 				Value: "http://10.10.10.10",
 			}, {
@@ -206,4 +253,37 @@ func TestClusterResourceValidation_Valid(t *testing.T) {
 	if err := res.Validate(); err != nil {
 		t.Errorf("Unexpected PipelineRun.Validate() error = %v", err)
 	}
+}
+
+func TestAllowedGCSStorageType(t *testing.T) {
+	tests := []struct {
+		name        string
+		storageType string
+		want        bool
+	}{
+		{name: "storage with gcs type",
+			storageType: "gcs",
+			want:        true,
+		},
+		{name: "storage with build-gcs type",
+			storageType: "build-gcs",
+			want:        true,
+		},
+		{name: "storage with incorrent type",
+			storageType: "t",
+			want:        false,
+		},
+		{name: "storage with empty type",
+			storageType: "",
+			want:        false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if allowedStorageType(tt.storageType) != tt.want {
+				t.Errorf("PipleineResource.allowedStorageType should return %t, got %t for %s", tt.want, !tt.want, tt.storageType)
+			}
+		})
+	}
+
 }

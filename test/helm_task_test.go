@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/knative/build-pipeline/pkg/apis/pipeline/v1alpha1"
+	"github.com/knative/build-pipeline/pkg/names"
 	tb "github.com/knative/build-pipeline/test/builder"
 	knativetest "github.com/knative/pkg/test"
 	"github.com/knative/pkg/test/logging"
@@ -55,6 +56,7 @@ func TestHelmDeployPipelineRun(t *testing.T) {
 	logger := logging.GetContextLogger(t.Name())
 	c, namespace := setup(t, logger)
 	setupClusterBindingForHelm(c, t, namespace, logger)
+	t.Parallel()
 
 	knativetest.CleanupOnInterrupt(func() { tearDown(t, logger, c, namespace) }, logger)
 	defer tearDown(t, logger, c, namespace)
@@ -155,7 +157,7 @@ func getCreateImageTask(namespace string, t *testing.T, logger *logging.BaseLogg
 		t.Fatalf("KO_DOCKER_REPO env variable is required")
 	}
 
-	imageName = fmt.Sprintf("%s/%s", dockerRepo, AppendRandomString(sourceImageName))
+	imageName = fmt.Sprintf("%s/%s", dockerRepo, names.SimpleNameGenerator.GenerateName(sourceImageName))
 	logger.Infof("Image to be pusblished: %s", imageName)
 
 	return tb.Task(createImageTaskName, namespace, tb.TaskSpec(
@@ -173,7 +175,7 @@ func getHelmDeployTask(namespace string) *v1alpha1.Task {
 		tb.TaskInputs(
 			tb.InputsResource("gitsource", v1alpha1.PipelineResourceTypeGit),
 			tb.InputsParam("pathToHelmCharts", tb.ParamDescription("Path to the helm charts")),
-			tb.InputsParam("image"), tb.InputsParam("chartname"),
+			tb.InputsParam("image"), tb.InputsParam("chartname", tb.ParamDefault("")),
 		),
 		tb.Step("helm-init", "alpine/helm", tb.Args("init", "--wait")),
 		tb.Step("helm-deploy", "alpine/helm", tb.Args(
@@ -190,13 +192,14 @@ func getHelmDeployTask(namespace string) *v1alpha1.Task {
 func getHelmDeployPipeline(namespace string) *v1alpha1.Pipeline {
 	return tb.Pipeline(helmDeployPipelineName, namespace, tb.PipelineSpec(
 		tb.PipelineDeclaredResource("git-repo", "git"),
+		tb.PipelineParam("chartname"),
 		tb.PipelineTask("push-image", createImageTaskName,
 			tb.PipelineTaskInputResource("gitsource", "git-repo"),
 		),
 		tb.PipelineTask("helm-deploy", helmDeployTaskName,
 			tb.PipelineTaskInputResource("gitsource", "git-repo"),
 			tb.PipelineTaskParam("pathToHelmCharts", "/workspace/gitsource/test/gohelloworld/gohelloworld-chart"),
-			tb.PipelineTaskParam("chartname", "gohelloworld"),
+			tb.PipelineTaskParam("chartname", "${params.chartname}"),
 			tb.PipelineTaskParam("image", imageName),
 		),
 	))
@@ -205,6 +208,7 @@ func getHelmDeployPipeline(namespace string) *v1alpha1.Pipeline {
 func getHelmDeployPipelineRun(namespace string) *v1alpha1.PipelineRun {
 	return tb.PipelineRun(helmDeployPipelineRunName, namespace, tb.PipelineRunSpec(
 		helmDeployPipelineName,
+		tb.PipelineRunParam("chartname", "gohelloworld"),
 		tb.PipelineRunResourceBinding("git-repo", tb.PipelineResourceBindingRef(sourceResourceName)),
 	))
 }
@@ -226,7 +230,7 @@ func setupClusterBindingForHelm(c *clients, t *testing.T, namespace string, logg
 
 	clusterRoleBindings[0] = &rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: AppendRandomString("tiller"),
+			Name: names.SimpleNameGenerator.GenerateName("tiller"),
 		},
 		RoleRef: rbacv1.RoleRef{
 			APIGroup: "rbac.authorization.k8s.io",
@@ -242,7 +246,7 @@ func setupClusterBindingForHelm(c *clients, t *testing.T, namespace string, logg
 
 	clusterRoleBindings[1] = &rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: AppendRandomString("default-tiller"),
+			Name: names.SimpleNameGenerator.GenerateName("default-tiller"),
 		},
 		RoleRef: rbacv1.RoleRef{
 			APIGroup: "rbac.authorization.k8s.io",
@@ -258,7 +262,7 @@ func setupClusterBindingForHelm(c *clients, t *testing.T, namespace string, logg
 
 	clusterRoleBindings[2] = &rbacv1.ClusterRoleBinding{
 		ObjectMeta: metav1.ObjectMeta{
-			Name: AppendRandomString("default-tiller"),
+			Name: names.SimpleNameGenerator.GenerateName("default-tiller"),
 		},
 		RoleRef: rbacv1.RoleRef{
 			APIGroup: "rbac.authorization.k8s.io",

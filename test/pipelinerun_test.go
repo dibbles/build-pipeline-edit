@@ -36,13 +36,20 @@ import (
 )
 
 var (
+	pipelineName       = "pipeline"
+	pipelineRunName    = "pipelinerun"
+	secretName         = "secret"
+	saName             = "service-account"
+	taskName           = "task"
+	task1Name          = "task1"
 	pipelineRunTimeout = 10 * time.Minute
 )
 
 func TestPipelineRun(t *testing.T) {
+	t.Parallel()
 	type tests struct {
 		name                   string
-		testSetup              func(c *clients, namespace string, index int)
+		testSetup              func(t *testing.T, c *clients, namespace string, index int)
 		expectedTaskRuns       []string
 		expectedNumberOfEvents int
 		pipelineRunFunc        func(int, string) *v1alpha1.PipelineRun
@@ -50,7 +57,7 @@ func TestPipelineRun(t *testing.T) {
 
 	tds := []tests{{
 		name: "fan-in and fan-out",
-		testSetup: func(c *clients, namespace string, index int) {
+		testSetup: func(t *testing.T, c *clients, namespace string, index int) {
 			t.Helper()
 			for _, task := range getFanInFanOutTasks(namespace) {
 				if _, err := c.TaskClient.Create(task); err != nil {
@@ -65,7 +72,7 @@ func TestPipelineRun(t *testing.T) {
 			}
 
 			if _, err := c.PipelineClient.Create(getFanInFanOutPipeline(index, namespace)); err != nil {
-				t.Fatalf("Failed to create Pipeline `%s`: %s", getName(hwPipelineName, index), err)
+				t.Fatalf("Failed to create Pipeline `%s`: %s", getName(pipelineName, index), err)
 			}
 		},
 		pipelineRunFunc:  getFanInFanOutPipelineRun,
@@ -76,17 +83,17 @@ func TestPipelineRun(t *testing.T) {
 	// TODO(#375): Reenable the 'fan-in and fan-out' test once it's fixed.
 	tds = []tests{{
 		name: "service account propagation",
-		testSetup: func(c *clients, namespace string, index int) {
+		testSetup: func(t *testing.T, c *clients, namespace string, index int) {
 			t.Helper()
 			if _, err := c.KubeClient.Kube.CoreV1().Secrets(namespace).Create(getPipelineRunSecret(index, namespace)); err != nil {
-				t.Fatalf("Failed to create secret `%s`: %s", getName(hwSecret, index), err)
+				t.Fatalf("Failed to create secret `%s`: %s", getName(secretName, index), err)
 			}
 
 			if _, err := c.KubeClient.Kube.CoreV1().ServiceAccounts(namespace).Create(getPipelineRunServiceAccount(index, namespace)); err != nil {
-				t.Fatalf("Failed to create SA `%s`: %s", getName(hwSA, index), err)
+				t.Fatalf("Failed to create SA `%s`: %s", getName(saName, index), err)
 			}
 
-			task := tb.Task(getName(hwTaskName, index), namespace, tb.TaskSpec(
+			task := tb.Task(getName(taskName, index), namespace, tb.TaskSpec(
 				// Reference build: https://github.com/knative/build/tree/master/test/docker-basic
 				tb.Step("config-docker", "gcr.io/cloud-builders/docker",
 					tb.Command("docker"),
@@ -101,14 +108,14 @@ func TestPipelineRun(t *testing.T) {
 				})),
 			))
 			if _, err := c.TaskClient.Create(task); err != nil {
-				t.Fatalf("Failed to create Task `%s`: %s", getName(hwTaskName, index), err)
+				t.Fatalf("Failed to create Task `%s`: %s", getName(taskName, index), err)
 			}
 
 			if _, err := c.PipelineClient.Create(getHelloWorldPipelineWithSingularTask(index, namespace)); err != nil {
-				t.Fatalf("Failed to create Pipeline `%s`: %s", getName(hwPipelineName, index), err)
+				t.Fatalf("Failed to create Pipeline `%s`: %s", getName(pipelineName, index), err)
 			}
 		},
-		expectedTaskRuns: []string{hwPipelineTaskName1},
+		expectedTaskRuns: []string{task1Name},
 		// 1 from PipelineRun and 1 from Tasks defined in pipelinerun
 		expectedNumberOfEvents: 2,
 		pipelineRunFunc:        getHelloWorldPipelineRun,
@@ -128,10 +135,11 @@ func TestPipelineRun(t *testing.T) {
 			defer tearDown(t, logger, c, namespace)
 
 			logger.Infof("Setting up test resources for %q test in namespace %s", td.name, namespace)
-			td.testSetup(c, namespace, i)
+			td.testSetup(t, c, namespace, i)
 
-			prName := fmt.Sprintf("%s%d", hwPipelineRunName, i)
-			if _, err := c.PipelineRunClient.Create(td.pipelineRunFunc(i, namespace)); err != nil {
+			prName := fmt.Sprintf("%s%d", pipelineRunName, i)
+			pr, err := c.PipelineRunClient.Create(td.pipelineRunFunc(i, namespace))
+			if err != nil {
 				t.Fatalf("Failed to create PipelineRun `%s`: %s", prName, err)
 			}
 
@@ -141,10 +149,19 @@ func TestPipelineRun(t *testing.T) {
 			}
 
 			logger.Infof("Making sure the expected TaskRuns %s were created", td.expectedTaskRuns)
-
+			actualTaskrunList, err := c.TaskRunClient.List(metav1.ListOptions{LabelSelector: fmt.Sprintf("pipeline.knative.dev/pipelineRun=%s", prName)})
+			if err != nil {
+				t.Fatalf("Error listing TaskRuns for PipelineRun %s: %s", prName, err)
+			}
 			expectedTaskRunNames := []string{}
 			for _, runName := range td.expectedTaskRuns {
 				taskRunName := strings.Join([]string{prName, runName}, "-")
+				// check the actual task name starting with prName+runName with a random suffix
+				for _, actualTaskRunItem := range actualTaskrunList.Items {
+					if strings.HasPrefix(actualTaskRunItem.Name, taskRunName) {
+						taskRunName = actualTaskRunItem.Name
+					}
+				}
 				expectedTaskRunNames = append(expectedTaskRunNames, taskRunName)
 				r, err := c.TaskRunClient.Get(taskRunName, metav1.GetOptions{})
 				if err != nil {
@@ -153,16 +170,22 @@ func TestPipelineRun(t *testing.T) {
 				if !r.Status.GetCondition(duckv1alpha1.ConditionSucceeded).IsTrue() {
 					t.Fatalf("Expected TaskRun %s to have succeeded but Status is %v", taskRunName, r.Status)
 				}
-				for name, key := range map[string]string{
-					hwPipelineRunName: pipeline.PipelineRunLabelKey,
-					hwPipelineName:    pipeline.PipelineLabelKey,
-				} {
-					expectedName := getName(name, i)
-					lbl := pipeline.GroupName + key
-					if val := r.Labels[lbl]; val != expectedName {
-						t.Errorf("Expected label %s=%s but got %s", lbl, expectedName, val)
-					}
+
+				// Check label propagation to Tasks. Presize map with len(pr.ObjectMeta.Labels)
+				// for custom labels, +2 for the labels added in the PipelineRun controller,
+				// and +1 for the label added in the TaskRun controller.
+				labels := make(map[string]string, len(pr.ObjectMeta.Labels)+3)
+				for key, val := range pr.ObjectMeta.Labels {
+					labels[key] = val
 				}
+				// These labels are added to every TaskRun by the PipelineRun controller
+				labels[pipeline.GroupName+pipeline.PipelineLabelKey] = getName(pipelineName, i)
+				labels[pipeline.GroupName+pipeline.PipelineRunLabelKey] = getName(pipelineRunName, i)
+				assertLabelsMatch(t, labels, r.ObjectMeta.Labels)
+
+				// Check label propagation to Pods. This label is added to every Pod by the TaskRun controller
+				labels[pipeline.GroupName+pipeline.TaskRunLabelKey] = taskRunName
+				assertLabelsMatch(t, labels, getPodForTaskRun(t, c.KubeClient, namespace, r).ObjectMeta.Labels)
 			}
 
 			matchKinds := map[string][]string{"PipelineRun": {prName}, "TaskRun": expectedTaskRunNames}
@@ -182,8 +205,8 @@ func TestPipelineRun(t *testing.T) {
 }
 
 func getHelloWorldPipelineWithSingularTask(suffix int, namespace string) *v1alpha1.Pipeline {
-	return tb.Pipeline(getName(hwPipelineName, suffix), namespace, tb.PipelineSpec(
-		tb.PipelineTask(hwPipelineTaskName1, getName(hwTaskName, suffix)),
+	return tb.Pipeline(getName(pipelineName, suffix), namespace, tb.PipelineSpec(
+		tb.PipelineTask(task1Name, getName(taskName, suffix)),
 	))
 }
 
@@ -238,21 +261,21 @@ func getFanInFanOutTasks(namespace string) []*v1alpha1.Task {
 }
 
 func getFanInFanOutPipeline(suffix int, namespace string) *v1alpha1.Pipeline {
-	return tb.Pipeline(getName(hwPipelineName, suffix), namespace, tb.PipelineSpec(
+	return tb.Pipeline(getName(pipelineName, suffix), namespace, tb.PipelineSpec(
 		tb.PipelineDeclaredResource("git-repo", "git"),
 		tb.PipelineTask("create-file-kritis", "create-file",
 			tb.PipelineTaskOutputResource("workspace", "git-repo"),
 		),
 		tb.PipelineTask("create-fan-out-1", "check-create-files-exists",
-			tb.PipelineTaskInputResource("workspace", "git-repo", tb.ProvidedBy("create-file-kritis")),
+			tb.PipelineTaskInputResource("workspace", "git-repo", tb.From("create-file-kritis")),
 			tb.PipelineTaskOutputResource("workspace", "git-repo"),
 		),
 		tb.PipelineTask("create-fan-out-2", "check-create-files-exists-2",
-			tb.PipelineTaskInputResource("workspace", "git-repo", tb.ProvidedBy("create-file-kritis")),
+			tb.PipelineTaskInputResource("workspace", "git-repo", tb.From("create-file-kritis")),
 			tb.PipelineTaskOutputResource("workspace", "git-repo"),
 		),
 		tb.PipelineTask("check-fan-in", "read-files",
-			tb.PipelineTaskInputResource("workspace", "git-repo", tb.ProvidedBy("create-fan-out-2", "create-fan-out-1")),
+			tb.PipelineTaskInputResource("workspace", "git-repo", tb.From("create-fan-out-2", "create-fan-out-1")),
 		),
 	))
 }
@@ -271,16 +294,16 @@ func getPipelineRunServiceAccount(suffix int, namespace string) *corev1.ServiceA
 	return &corev1.ServiceAccount{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespace,
-			Name:      getName(hwSA, suffix),
+			Name:      getName(saName, suffix),
 		},
 		Secrets: []corev1.ObjectReference{{
-			Name: getName(hwSecret, suffix),
+			Name: getName(secretName, suffix),
 		}},
 	}
 }
 func getFanInFanOutPipelineRun(suffix int, namespace string) *v1alpha1.PipelineRun {
-	return tb.PipelineRun(getName(hwPipelineRunName, suffix), namespace, tb.PipelineRunSpec(
-		getName(hwPipelineName, suffix),
+	return tb.PipelineRun(getName(pipelineRunName, suffix), namespace, tb.PipelineRunSpec(
+		getName(pipelineName, suffix),
 		tb.PipelineRunResourceBinding("git-repo", tb.PipelineResourceBindingRef("kritis-resource-git")),
 	))
 }
@@ -298,12 +321,12 @@ func getPipelineRunSecret(suffix int, namespace string) *corev1.Secret {
 	return &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Namespace: namespace,
-			Name:      getName(hwSecret, suffix),
+			Name:      getName(secretName, suffix),
 			Annotations: map[string]string{
-				"build.knative.dev/docker-0": "https://us.gcr.io",
-				"build.knative.dev/docker-1": "https://eu.gcr.io",
-				"build.knative.dev/docker-2": "https://asia.gcr.io",
-				"build.knative.dev/docker-3": "https://gcr.io",
+				"pipeline.knative.dev/docker-0": "https://us.gcr.io",
+				"pipeline.knative.dev/docker-1": "https://eu.gcr.io",
+				"pipeline.knative.dev/docker-2": "https://asia.gcr.io",
+				"pipeline.knative.dev/docker-3": "https://gcr.io",
 			},
 		},
 		Type: "kubernetes.io/basic-auth",
@@ -315,10 +338,12 @@ func getPipelineRunSecret(suffix int, namespace string) *corev1.Secret {
 }
 
 func getHelloWorldPipelineRun(suffix int, namespace string) *v1alpha1.PipelineRun {
-	return tb.PipelineRun(getName(hwPipelineRunName, suffix), namespace, tb.PipelineRunSpec(
-		getName(hwPipelineName, suffix),
-		tb.PipelineRunServiceAccount(fmt.Sprintf("%s%d", hwSA, suffix)),
-	))
+	return tb.PipelineRun(getName(pipelineRunName, suffix), namespace,
+		tb.PipelineRunLabel("hello-world-key", "hello-world-value"),
+		tb.PipelineRunSpec(getName(pipelineName, suffix),
+			tb.PipelineRunServiceAccount(fmt.Sprintf("%s%d", saName, suffix)),
+		),
+	)
 }
 
 func getName(namespace string, suffix int) string {
@@ -360,6 +385,28 @@ func collectMatchingEvents(kubeClient *knativetest.KubeClient, namespace string,
 			}
 		case <-timer.C:
 			return events, nil
+		}
+	}
+}
+
+func getPodForTaskRun(t *testing.T, kubeClient *knativetest.KubeClient, namespace string, tr *v1alpha1.TaskRun) *corev1.Pod {
+	// The Pod name has a random suffix, so we filter by label to find the one we care about.
+	pods, err := kubeClient.Kube.CoreV1().Pods(namespace).List(metav1.ListOptions{
+		LabelSelector: pipeline.GroupName + pipeline.TaskRunLabelKey + " = " + tr.Name,
+	})
+	if err != nil {
+		t.Fatalf("Couldn't get expected Pod for %s: %s", tr.Name, err)
+	}
+	if numPods := len(pods.Items); numPods != 1 {
+		t.Fatalf("Expected 1 Pod for %s, but got %d Pods", tr.Name, numPods)
+	}
+	return &pods.Items[0]
+}
+
+func assertLabelsMatch(t *testing.T, expectedLabels, actualLabels map[string]string) {
+	for key, expectedVal := range expectedLabels {
+		if actualVal := actualLabels[key]; actualVal != expectedVal {
+			t.Errorf("Expected labels containing %s=%s but labels were %v", key, expectedVal, actualLabels)
 		}
 	}
 }

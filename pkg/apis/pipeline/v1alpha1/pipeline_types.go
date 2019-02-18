@@ -23,9 +23,9 @@ import (
 
 // PipelineSpec defines the desired state of PipeLine.
 type PipelineSpec struct {
-	Resources  []PipelineDeclaredResource `json:"resources"`
-	Tasks      []PipelineTask             `json:"tasks"`
-	Generation int64                      `json:"generation,omitempty"`
+	Resources []PipelineDeclaredResource `json:"resources"`
+	Tasks     []PipelineTask             `json:"tasks"`
+	Params    []PipelineParam            `json:"params"`
 }
 
 // PipelineStatus does not contain anything because Pipelines on their own
@@ -84,6 +84,16 @@ type PipelineTaskParam struct {
 	Value string `json:"value"`
 }
 
+// PipelineParam defines arbitrary parameters needed by a pipeline beyond typed inputs
+// such as resources.
+type PipelineParam struct {
+	Name string `json:"name"`
+	// +optional
+	Description string `json:"description,omitempty"`
+	// +optional
+	Default string `json:"default,omitempty"`
+}
+
 // PipelineDeclaredResource is used by a Pipeline to declare the types of the
 // PipelineResources that it will required to run and names which can be used to
 // refer to these PipelineResources in PipelineTaskResourceBindings.
@@ -116,9 +126,9 @@ type PipelineTaskInputResource struct {
 	Name string `json:"name"`
 	// Resource is the name of the DeclaredPipelineResource to use.
 	Resource string `json:"resource"`
-	// ProvidedBy is the list of PipelineTask names that the resource has to come from.
+	// From is the list of PipelineTask names that the resource has to come from.
 	// +optional
-	ProvidedBy []string `json:"providedBy,omitempty"`
+	From []string `json:"from,omitempty"`
 }
 
 // PipelineTaskOutputResource maps the name of a declared PipelineResource output

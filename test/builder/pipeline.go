@@ -14,8 +14,11 @@ limitations under the License.
 package builder
 
 import (
+	"time"
+
 	"github.com/knative/build-pipeline/pkg/apis/pipeline/v1alpha1"
 	duckv1alpha1 "github.com/knative/pkg/apis/duck/v1alpha1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -24,6 +27,9 @@ type PipelineOp func(*v1alpha1.Pipeline)
 
 // PipelineSpecOp is an operation which modify a PipelineSpec struct.
 type PipelineSpecOp func(*v1alpha1.PipelineSpec)
+
+// PipelineParamOp is an operation which modify a PipelineParam struct.
+type PipelineParamOp func(*v1alpha1.PipelineParam)
 
 // PipelineTaskOp is an operation which modify a PipelineTask struct.
 type PipelineTaskOp func(*v1alpha1.PipelineTask)
@@ -97,6 +103,32 @@ func PipelineDeclaredResource(name string, t v1alpha1.PipelineResourceType) Pipe
 	}
 }
 
+// PipelineParam adds a param, with specified name, to the Spec.
+// Any number of PipelineParam modifiers can be passed to transform it.
+func PipelineParam(name string, ops ...PipelineParamOp) PipelineSpecOp {
+	return func(ps *v1alpha1.PipelineSpec) {
+		pp := &v1alpha1.PipelineParam{Name: name}
+		for _, op := range ops {
+			op(pp)
+		}
+		ps.Params = append(ps.Params, *pp)
+	}
+}
+
+// PipelineParamDescription sets the description to the PipelineParam.
+func PipelineParamDescription(desc string) PipelineParamOp {
+	return func(pp *v1alpha1.PipelineParam) {
+		pp.Description = desc
+	}
+}
+
+// PipelineParamDefault sets the default value to the PipelineParam.
+func PipelineParamDefault(value string) PipelineParamOp {
+	return func(pp *v1alpha1.PipelineParam) {
+		pp.Default = value
+	}
+}
+
 // PipelineTask adds a PipelineTask, with specified name and task name, to the PipelineSpec.
 // Any number of PipelineTask modifier can be passed to transform it.
 func PipelineTask(name, taskName string, ops ...PipelineTaskOp) PipelineSpecOp {
@@ -131,11 +163,11 @@ func PipelineTaskParam(name, value string) PipelineTaskOp {
 	}
 }
 
-// ProvidedBy will update the provided PipelineTaskInputResource to indicate that it
+// From will update the provided PipelineTaskInputResource to indicate that it
 // should come from tasks.
-func ProvidedBy(tasks ...string) PipelineTaskInputResourceOp {
+func From(tasks ...string) PipelineTaskInputResourceOp {
 	return func(r *v1alpha1.PipelineTaskInputResource) {
-		r.ProvidedBy = tasks
+		r.From = tasks
 	}
 }
 
@@ -211,6 +243,16 @@ func PipelineRunSpec(name string, ops ...PipelineRunSpecOp) PipelineRunOp {
 	}
 }
 
+// PipelineRunLabels adds a label to the PipelineRun.
+func PipelineRunLabel(key, value string) PipelineRunOp {
+	return func(pr *v1alpha1.PipelineRun) {
+		if pr.ObjectMeta.Labels == nil {
+			pr.ObjectMeta.Labels = map[string]string{}
+		}
+		pr.ObjectMeta.Labels[key] = value
+	}
+}
+
 // PipelineRunResourceBinding adds bindings from actual instances to a Pipeline's declared resources.
 func PipelineRunResourceBinding(name string, ops ...PipelineResourceBindingOp) PipelineRunSpecOp {
 	return func(prs *v1alpha1.PipelineRunSpec) {
@@ -241,6 +283,37 @@ func PipelineRunServiceAccount(sa string) PipelineRunSpecOp {
 	}
 }
 
+// PipelineRunParam add a param, with specified name and value, to the PipelineRunSpec.
+func PipelineRunParam(name, value string) PipelineRunSpecOp {
+	return func(prs *v1alpha1.PipelineRunSpec) {
+		prs.Params = append(prs.Params, v1alpha1.Param{
+			Name:  name,
+			Value: value,
+		})
+	}
+}
+
+// PipelineRunTimeout sets the timeout to the PipelineSpec.
+func PipelineRunTimeout(duration *metav1.Duration) PipelineRunSpecOp {
+	return func(prs *v1alpha1.PipelineRunSpec) {
+		prs.Timeout = duration
+	}
+}
+
+// PipelineRunNodeSelector sets the Node selector to the PipelineSpec.
+func PipelineRunNodeSelector(values map[string]string) PipelineRunSpecOp {
+	return func(prs *v1alpha1.PipelineRunSpec) {
+		prs.NodeSelector = values
+	}
+}
+
+// PipelineRunAffinity sets the affinity to the PipelineSpec.
+func PipelineRunAffinity(affinity *corev1.Affinity) PipelineRunSpecOp {
+	return func(prs *v1alpha1.PipelineRunSpec) {
+		prs.Affinity = affinity
+	}
+}
+
 // PipelineRunStatus sets the PipelineRunStatus to the PipelineRun.
 // Any number of PipelineRunStatus modifier can be passed to transform it.
 func PipelineRunStatus(ops ...PipelineRunStatusOp) PipelineRunOp {
@@ -257,6 +330,13 @@ func PipelineRunStatus(ops ...PipelineRunStatusOp) PipelineRunOp {
 func PipelineRunStatusCondition(condition duckv1alpha1.Condition) PipelineRunStatusOp {
 	return func(s *v1alpha1.PipelineRunStatus) {
 		s.Conditions = append(s.Conditions, condition)
+	}
+}
+
+// PipelineRunStartTime sets the start time to the PipelineRunStatus.
+func PipelineRunStartTime(startTime time.Time) PipelineRunStatusOp {
+	return func(s *v1alpha1.PipelineRunStatus) {
+		s.StartTime = &metav1.Time{Time: startTime}
 	}
 }
 

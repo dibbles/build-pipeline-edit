@@ -17,6 +17,8 @@ import (
 	"testing"
 
 	"github.com/google/go-cmp/cmp"
+	"github.com/knative/build-pipeline/test/names"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -35,6 +37,9 @@ func TestNewClusterResource(t *testing.T) {
 			Spec: PipelineResourceSpec{
 				Type: PipelineResourceTypeCluster,
 				Params: []Param{{
+					Name:  "name",
+					Value: "test_cluster_resource",
+				}, {
 					Name:  "url",
 					Value: "http://10.10.10.10",
 				}, {
@@ -48,7 +53,7 @@ func TestNewClusterResource(t *testing.T) {
 			},
 		},
 		want: &ClusterResource{
-			Name:   "test-cluster-resource",
+			Name:   "test_cluster_resource",
 			Type:   PipelineResourceTypeCluster,
 			URL:    "http://10.10.10.10",
 			CAData: []byte("my-cluster-cert"),
@@ -64,6 +69,9 @@ func TestNewClusterResource(t *testing.T) {
 			Spec: PipelineResourceSpec{
 				Type: PipelineResourceTypeCluster,
 				Params: []Param{{
+					Name:  "name",
+					Value: "test_cluster_resource",
+				}, {
 					Name:  "url",
 					Value: "http://10.10.10.10",
 				}, {
@@ -80,7 +88,7 @@ func TestNewClusterResource(t *testing.T) {
 			},
 		},
 		want: &ClusterResource{
-			Name:     "test-cluster-resource",
+			Name:     "test_cluster_resource",
 			Type:     PipelineResourceTypeCluster,
 			URL:      "http://10.10.10.10",
 			CAData:   []byte("my-cluster-cert"),
@@ -97,6 +105,9 @@ func TestNewClusterResource(t *testing.T) {
 			Spec: PipelineResourceSpec{
 				Type: PipelineResourceTypeCluster,
 				Params: []Param{{
+					Name:  "Name",
+					Value: "test.cluster.resource",
+				}, {
 					Name:  "url",
 					Value: "http://10.10.10.10",
 				}, {
@@ -107,7 +118,7 @@ func TestNewClusterResource(t *testing.T) {
 			},
 		},
 		want: &ClusterResource{
-			Name:     "test-cluster-resource",
+			Name:     "test.cluster.resource",
 			Type:     PipelineResourceTypeCluster,
 			URL:      "http://10.10.10.10",
 			Token:    "my-token",
@@ -123,6 +134,9 @@ func TestNewClusterResource(t *testing.T) {
 			Spec: PipelineResourceSpec{
 				Type: PipelineResourceTypeCluster,
 				Params: []Param{{
+					Name:  "name",
+					Value: "test-cluster-resource",
+				}, {
 					Name:  "url",
 					Value: "http://10.10.10.10",
 				}},
@@ -159,6 +173,55 @@ func TestNewClusterResource(t *testing.T) {
 			}
 			if d := cmp.Diff(got, c.want); d != "" {
 				t.Errorf("Diff:\n%s", d)
+			}
+		})
+	}
+}
+
+func Test_ClusterResource_GetDownloadContainerSpec(t *testing.T) {
+	names.TestingSeed()
+	testcases := []struct {
+		name            string
+		clusterResource *ClusterResource
+		wantContainers  []corev1.Container
+		wantErr         bool
+	}{{
+		name: "valid cluster resource config",
+		clusterResource: &ClusterResource{
+			Name: "test-cluster-resource",
+			Type: PipelineResourceTypeCluster,
+			URL:  "http://10.10.10.10",
+			Secrets: []SecretParam{{
+				FieldName:  "cadata",
+				SecretKey:  "cadatakey",
+				SecretName: "secret1",
+			}},
+		},
+		wantContainers: []corev1.Container{{
+			Name:  "kubeconfig-9l9zj",
+			Image: "override-with-kubeconfig-writer:latest",
+			Args:  []string{"-clusterConfig", `{"name":"test-cluster-resource","type":"cluster","url":"http://10.10.10.10","revision":"","username":"","password":"","token":"","Insecure":false,"cadata":null,"secrets":[{"fieldName":"cadata","secretKey":"cadatakey","secretName":"secret1"}]}`},
+			Env: []corev1.EnvVar{{
+				Name: "CADATA",
+				ValueFrom: &corev1.EnvVarSource{
+					SecretKeyRef: &corev1.SecretKeySelector{
+						LocalObjectReference: corev1.LocalObjectReference{
+							Name: "secret1",
+						},
+						Key: "cadatakey",
+					},
+				},
+			}},
+		}},
+	}}
+	for _, tc := range testcases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotContainers, err := tc.clusterResource.GetDownloadContainerSpec()
+			if tc.wantErr && err == nil {
+				t.Fatalf("Expected error to be %t but got %v:", tc.wantErr, err)
+			}
+			if d := cmp.Diff(gotContainers, tc.wantContainers); d != "" {
+				t.Errorf("Error mismatch between download containers spec: %s", d)
 			}
 		})
 	}

@@ -3,23 +3,24 @@
 Welcome to the Pipeline tutorial!
 
 This tutorial will walk you through creating and running some simple
-[`Tasks`](concepts.md#task), [`Pipelines`](concepts.md#pipeline) and running
-them by creating [`TaskRuns`](concepts.md#taskruns) and
-[`PipelineRuns`](concepts.md#pipelineruns).
+[`Task`](tasks.md), [`Pipeline`](pipelines.md) and running them by creating
+[`TaskRuns`](taskruns.md) and [`PipelineRuns`](pipelineruns.md).
 
-- [Creating a hello world `Task`](#tasks)
-- [Creating a hello world `Pipeline`](#pipelines)
+- [Creating a hello world `Task`](#task)
+- [Creating a hello world `Pipeline`](#pipeline)
 
-For more details on using `Pipelines`, see [our usage docs](usage.md).
+For more details on using `Pipelines`, see [our usage docs](README.md).
 
-## Tasks
+**[This tutorial can be run on a local workstation](#local-development)**<br>
+
+## Task
 
 The main objective of the Pipeline CRDs is to run your Task individually or as a
 part of a Pipeline. Every task runs as a Pod on your Kubernetes cluster with
 each step as its own container.
 
-A [`Task`](concepts.md#task) defines the work that needs to be executed, for
-example the following is a simple task that will echo hello world:
+A [`Task`](tasks.md) defines the work that needs to be executed, for example the
+following is a simple task that will echo hello world:
 
 ```yaml
 apiVersion: pipeline.knative.dev/v1alpha1
@@ -38,8 +39,8 @@ spec:
 
 The `steps` are a series of commands to be sequentially executed by the task.
 
-A [`TaskRun`](concepts.md#taskruns) runs the `Task` you defined. Here is a
-simple example of a `TaskRun` you can use to execute your task:
+A [`TaskRun`](taskruns.md) runs the `Task` you defined. Here is a simple example
+of a `TaskRun` you can use to execute your task:
 
 ```yaml
 apiVersion: pipeline.knative.dev/v1alpha1
@@ -119,13 +120,13 @@ In more common scenarios, a Task needs multiple steps with input and output
 resources to process. For example a Task could fetch source code from a GitHub
 repository and build a Docker image from it.
 
-[`PipelinesResources`](concepts.md#pipelineresources) are used to define the
-artifacts that can be passed in and out of a task. There are a few system
-defined resource types ready to use, and the following are two examples of the
-resources commonly needed.
+[`PipelinesResources`](resources.md) are used to define the artifacts that can
+be passed in and out of a task. There are a few system defined resource types
+ready to use, and the following are two examples of the resources commonly
+needed.
 
-The [`git` resource](using.md#git-resource) represents a git repository with a
-specific revision:
+The [`git` resource](resources.md#git-resource) represents a git repository with
+a specific revision:
 
 ```yaml
 apiVersion: pipeline.knative.dev/v1alpha1
@@ -138,11 +139,11 @@ spec:
     - name: revision
       value: master
     - name: url
-      value: https://github.com/GoogleContainerTools/skaffold
+      value: https://github.com/GoogleContainerTools/skaffold #configure: change if you want to build something else, perhaps from your own local GitLab
 ```
 
-The [`image` resource](using.md#image-resource) represents theimage to be built
-by the task:
+The [`image` resource](resources.md#image-resource) represents the image to be
+built by the task:
 
 ```yaml
 apiVersion: pipeline.knative.dev/v1alpha1
@@ -153,7 +154,7 @@ spec:
   type: image
   params:
     - name: url
-      value: gcr.io/<use your project>/leeroy-web
+      value: gcr.io/<use your project>/leeroy-web #configure: replace with where the image should go: perhaps your local registry or Dockerhub with a secret and configured service account
 ```
 
 The following is a `Task` with inputs and outputs. The input resource is a
@@ -218,7 +219,7 @@ spec:
       - name: pathToDockerFile
         value: Dockerfile
       - name: pathToContext
-        value: /workspace/gitspace/examples/microservices/leeroy-web
+        value: /workspace/docker-source/examples/microservices/leeroy-web #configure: may change according to your source
   outputs:
     resources:
       - name: builtImage
@@ -280,7 +281,7 @@ spec:
       - name: pathToDockerFile
         value: Dockerfile
       - name: pathToContext
-        value: /workspace/git-source/examples/microservices/leeroy-web
+        value: /workspace/git-source/examples/microservices/leeroy-web #configure: may change depending on your source
     resources:
       - name: git-source
         paths: null
@@ -292,9 +293,6 @@ spec:
         paths: null
         resourceRef:
           name: skaffold-image-leeroy-web
-  results:
-    type: gcs
-    url: gcs://somebucket/results/logs
   taskRef:
     name: build-docker-image-from-git-source
   taskSpec: null
@@ -330,10 +328,10 @@ resource definition.
 
 # Pipeline
 
-A [`Pipeline`](concepts.md#pipelines) defines a list of tasks to execute in
-order, while also indicating if any outputs should be used as inputs of a
-following task by using [the `providedBy` field](using.md#providedby). The same
-templating you used in tasks is also available in pipeline.
+A [`Pipeline`](pipelines.md) defines a list of tasks to execute, while
+also indicating if any outputs should be used as inputs of a following task by
+using [the `from` field](pipelines.md#from). The same templating you used in
+tasks is also available in pipeline.
 
 For example:
 
@@ -356,7 +354,7 @@ spec:
         - name: pathToDockerFile
           value: Dockerfile
         - name: pathToContext
-          value: /workspace/examples/microservices/leeroy-web
+          value: /workspace/examples/microservices/leeroy-web #configure: may change according to your source
       resources:
         inputs:
           - name: workspace
@@ -373,11 +371,11 @@ spec:
             resource: source-repo
           - name: image
             resource: web-image
-            providedBy:
+            from:
               - build-skaffold-web
       params:
         - name: path
-          value: /workspace/examples/microservices/leeroy-web/kubernetes/deployment.yaml
+          value: /workspace/examples/microservices/leeroy-web/kubernetes/deployment.yaml #configure: may change according to your source
         - name: yqArg
           value: "-d1"
         - name: yamlPathToImage
@@ -429,8 +427,7 @@ spec:
         - "${inputs.params.path}"
 ```
 
-To run the `Pipeline`, create a [`PipelineRun`](concepts.md#pipelinerun) as
-follows:
+To run the `Pipeline`, create a [`PipelineRun`](pipelineruns.md) as follows:
 
 ```yaml
 apiVersion: pipeline.knative.dev/v1alpha1
@@ -560,3 +557,63 @@ status:
 
 The status of type `Succeeded = True` shows the pipeline ran successfully, also
 the status of individual Task runs are shown.
+
+## Local development
+
+### Known good configuration
+
+Knative (as of version 0.3) is known to work with:
+
+- [Docker for Desktop](https://www.docker.com/products/docker-desktop): a
+  version that uses Kubernetes 1.11 or higher. At the time of this document,
+  this requires the _edge_ version of Docker to be installed. A known good
+  configuration specifies six CPUs, 10 GB of memory and 2 GB of swap space
+- The following
+  [prerequisites](https://github.com/knative/build-pipeline/blob/master/DEVELOPMENT.md#requirements)
+- Setting `host.docker.local:5000` as an insecure registry with Docker for
+  Desktop (set via preferences or configuration, see the
+  [Docker insecure registry documentation](https://docs.docker.com/registry/insecure/)
+  for details)
+- Passing `--insecure` as an argument to Kaniko tasks lets us push to an
+  insecure registry
+- Running a local (insecure) Docker registry: this can be run with
+
+`docker run -d -p 5000:5000 --name registry-srv -e REGISTRY_STORAGE_DELETE_ENABLED=true registry:2`
+
+- Optionally, a Docker registry viewer so we can check our pushed images are
+  present:
+
+`docker run -it -p 8080:8080 --name registry-web --link registry-srv -e REGISTRY_URL=http://registry-srv:5000/v2 -e REGISTRY_NAME=localhost:5000 hyper/docker-registry-web`
+
+### Images
+
+- Any PipelineResource definitions of image type should be updated to use the
+  local registry by setting the url to
+  `host.docker.internal:5000/myregistry/<image name>` equivalents
+- The `KO_DOCKER_REPO` variable should be set to `localhost:5000/myregistry`
+  before using `ko`
+- You are able to push to `host.docker.internal:5000/myregistry/<image name>`
+  but your applications (e.g any deployment definitions) should reference
+  `localhost:5000/myregistry/<image name>`
+
+### Logging
+
+- Logs can remain in-memory only as opposed to sent to a service such as
+  [Stackdriver](https://cloud.google.com/logging/).
+
+Elasticsearch can be deployed locally as a means to view logs "after the fact":
+an example is provided at https://github.com/mgreau/knative-elastic-tutorials.
+
+## Experimentation
+
+Lines of code you may want to configure have the #configure annotation. This
+annotation applies to subjects such as Docker registries, log output locations
+and other nuances that may be specific to particular cloud providers or
+services.
+
+---
+
+Except as otherwise noted, the content of this page is licensed under the
+[Creative Commons Attribution 4.0 License](https://creativecommons.org/licenses/by/4.0/),
+and code samples are licensed under the
+[Apache 2.0 License](https://www.apache.org/licenses/LICENSE-2.0).

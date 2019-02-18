@@ -175,17 +175,15 @@ func (rg *rg) With(name string, pr *v1alpha1.PipelineResource) *rg {
 	return rg
 }
 
-func mockGetter() *rg {
-	return &rg{
-		resources: map[string]*v1alpha1.PipelineResource{},
-	}
-}
+var mockGetter = func(n string) (*v1alpha1.PipelineResource, error) { return &v1alpha1.PipelineResource{}, nil }
+var gitResourceGetter = func(n string) (*v1alpha1.PipelineResource, error) { return gitResource, nil }
+var imageResourceGetter = func(n string) (*v1alpha1.PipelineResource, error) { return imageResource, nil }
 
 func TestApplyResources(t *testing.T) {
 	type args struct {
 		b      *buildv1alpha1.Build
 		r      []v1alpha1.TaskResourceBinding
-		getter ResourceGetter
+		getter GetResource
 		rStr   string
 	}
 	tests := []struct {
@@ -199,7 +197,7 @@ func TestApplyResources(t *testing.T) {
 			args: args{
 				b:      simpleBuild,
 				r:      []v1alpha1.TaskResourceBinding{},
-				getter: mockGetter(),
+				getter: mockGetter,
 				rStr:   "inputs",
 			},
 			want: simpleBuild,
@@ -209,7 +207,7 @@ func TestApplyResources(t *testing.T) {
 			args: args{
 				b:      simpleBuild,
 				r:      inputs,
-				getter: mockGetter().With("git-resource", gitResource),
+				getter: gitResourceGetter,
 				rStr:   "inputs",
 			},
 			want: applyMutation(simpleBuild, func(b *buildv1alpha1.Build) {
@@ -221,7 +219,7 @@ func TestApplyResources(t *testing.T) {
 			args: args{
 				b:      simpleBuild,
 				r:      outputs,
-				getter: mockGetter().With("image-resource", imageResource),
+				getter: imageResourceGetter,
 				rStr:   "outputs",
 			},
 			want: applyMutation(simpleBuild, func(b *buildv1alpha1.Build) {
@@ -233,7 +231,7 @@ func TestApplyResources(t *testing.T) {
 			args: args{
 				b:      simpleBuild,
 				r:      inputs,
-				getter: mockGetter(),
+				getter: mockGetter,
 				rStr:   "inputs",
 			},
 			wantErr: true,
@@ -246,6 +244,76 @@ func TestApplyResources(t *testing.T) {
 				t.Errorf("ApplyResources() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
+			if d := cmp.Diff(got, tt.want); d != "" {
+				t.Errorf("ApplyResources() diff %s", d)
+			}
+		})
+	}
+}
+
+func TestVolumeReplacement(t *testing.T) {
+	tests := []struct {
+		name string
+		b    *buildv1alpha1.Build
+		repl map[string]string
+		want *buildv1alpha1.Build
+	}{{
+		name: "volume replacement",
+		b: &buildv1alpha1.Build{
+			Spec: buildv1alpha1.BuildSpec{
+				Volumes: []corev1.Volume{{
+					Name: "${foo}",
+				}},
+			},
+		},
+		want: &buildv1alpha1.Build{
+			Spec: buildv1alpha1.BuildSpec{
+				Volumes: []corev1.Volume{{
+					Name: "bar",
+				}},
+			},
+		},
+		repl: map[string]string{"foo": "bar"},
+	}, {
+		name: "volume configmap",
+		b: &buildv1alpha1.Build{
+			Spec: buildv1alpha1.BuildSpec{
+				Volumes: []corev1.Volume{{
+					Name: "${name}",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							corev1.LocalObjectReference{"${configmapname}"},
+							nil,
+							nil,
+							nil,
+						},
+					}},
+				},
+			},
+		},
+		repl: map[string]string{
+			"name":          "myname",
+			"configmapname": "cfgmapname",
+		},
+		want: &buildv1alpha1.Build{
+			Spec: buildv1alpha1.BuildSpec{
+				Volumes: []corev1.Volume{{
+					Name: "myname",
+					VolumeSource: corev1.VolumeSource{
+						ConfigMap: &corev1.ConfigMapVolumeSource{
+							corev1.LocalObjectReference{"cfgmapname"},
+							nil,
+							nil,
+							nil,
+						},
+					}},
+				},
+			},
+		},
+	}}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := ApplyReplacements(tt.b, tt.repl)
 			if d := cmp.Diff(got, tt.want); d != "" {
 				t.Errorf("ApplyResources() diff %s", d)
 			}

@@ -3,6 +3,9 @@
 To run tests:
 
 ```shell
+# Land the latest codes
+ko apply -f ./config/
+
 # Unit tests
 go test ./...
 
@@ -50,19 +53,19 @@ Kubernetes objects and can interact with them using the
 
 ```go
 import (
-	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+    v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 obj := &v1alpha1.PipelineRun {
-	ObjectMeta: metav1.ObjectMeta {
+    ObjectMeta: metav1.ObjectMeta {
         Name:      "name",
         Namespace: "namespace",
     },
     Spec: v1alpha1.PipelineRunSpec {
-    	PipelineRef: v1alpha1.PipelineRef {
-    		Name:       "test-pipeline",
-    		APIVersion: "a1",
-    	},
+        PipelineRef: v1alpha1.PipelineRef {
+            Name:       "test-pipeline",
+            APIVersion: "a1",
+        },
     }
 }
 pipelineClient := fakepipelineclientset.NewSimpleClientset(obj)
@@ -86,16 +89,16 @@ sharedInfomer := informers.NewSharedInformerFactory(pipelineClient, 0)
 pipelineRunsInformer := sharedInfomer.Pipeline().V1alpha1().PipelineRuns()
 
 obj := &v1alpha1.PipelineRun {
-	ObjectMeta: metav1.ObjectMeta {
-		Name:      "name",
-		Namespace: "namespace",
-	},
-	Spec: v1alpha1.PipelineRunSpec {
-		PipelineRef: v1alpha1.PipelineRef {
-			Name:       "test-pipeline",
-			APIVersion: "a1",
-		},
-	}
+    ObjectMeta: metav1.ObjectMeta {
+        Name:      "name",
+        Namespace: "namespace",
+    },
+    Spec: v1alpha1.PipelineRunSpec {
+        PipelineRef: v1alpha1.PipelineRef {
+            Name:       "test-pipeline",
+            APIVersion: "a1",
+        },
+    }
 }
 pipelineRunsInformer.Informer().GetIndexer().Add(obj)
 ```
@@ -107,14 +110,17 @@ pipelineRunsInformer.Informer().GetIndexer().Add(obj)
 Besides the environment variable `KO_DOCKER_REPO`, you may also need the
 permissions inside the TaskRun to run the Kaniko e2e test and GCS taskrun test.
 
-- In Kaniko e2e test, setting `KANIKO_SECRET_CONFIG_FILE` as the path of the GCP
-  service account JSON key which has permissions to push to the registry
+- In Kaniko e2e test, setting `GCP_SERVICE_ACCOUNT_KEY_PATH` as the path of the
+  GCP service account JSON key which has permissions to push to the registry
   specified in `KO_DOCKER_REPO` will enable Kaniko to use those credentials when
   pushing an image.
 - In GCS taskrun test, GCP service account JSON key file at path
-  `KANIKO_SECRET_CONFIG_FILE` is used to generate Kubernetes secret to access
+  `GCP_SERVICE_ACCOUNT_KEY_PATH` is used to generate Kubernetes secret to access
   GCS bucket. This e2e test requires valid service account configuration json
   but it does not require any role binding.
+- In Storage artifact bucket, setting the `GCP_SERVICE_ACCOUNT_KEY_PATH` as the
+  path of the GCP service account JSON key which has permissions to
+  create/delete a bucket.
 
 To reduce e2e test setup developers can use the same environment variable for
 both Kaniko e2e test and GCS taskrun test. To create a service account usable in
@@ -136,7 +142,7 @@ gcloud projects add-iam-policy-binding $PROJECT_ID --member serviceAccount:$EMAI
 # create the JSON key
 gcloud iam service-accounts keys create config.json --iam-account $EMAIL
 
-export KANIKO_SECRET_CONFIG_FILE="$PWD/config.json"
+export GCP_SERVICE_ACCOUNT_KEY_PATH="$PWD/config.json"
 ```
 
 ### Running
@@ -197,7 +203,7 @@ go test -v -tags=e2e -count=1 ./test -run ^TestTaskRun$
 To run the YAML e2e tests, run the following command:
 
 ```bash
-./test/e2e-yaml-tests.sh
+./test/e2e-tests-yaml.sh
 ```
 
 ### Adding integration tests
@@ -231,22 +237,22 @@ To create `build-pipeline` objects (e.g. `Task`, `Pipeline`, …), you can use t
 
 ```go
 func MyTest(t *testing.T){
-	// Pipeline
-	pipeline := tb.Pipeline("tomatoes", "namespace",
-		tb.PipelineSpec(tb.PipelineTask("foo", "banana")),
-	)
- 	// … and PipelineRun
-	pipelineRun := tb.PipelineRun("pear", "namespace",
-		tb.PipelineRunSpec("tomatoes", tb.PipelineRunServiceAccount("inexistent")),
-	)
-	// And do something with them
-	// […]
-	if _, err := c.PipelineClient.Create(pipeline); err != nil {
-		t.Fatalf("Failed to create Pipeline `%s`: %s", "tomatoes", err)
-	}
-	if _, err := c.PipelineRunClient.Create(pipelineRun); err != nil {
-		t.Fatalf("Failed to create PipelineRun `%s`: %s", "pear", err)
-	}
+    // Pipeline
+    pipeline := tb.Pipeline("tomatoes", "namespace",
+        tb.PipelineSpec(tb.PipelineTask("foo", "banana")),
+    )
+    // … and PipelineRun
+    pipelineRun := tb.PipelineRun("pear", "namespace",
+        tb.PipelineRunSpec("tomatoes", tb.PipelineRunServiceAccount("inexistent")),
+    )
+    // And do something with them
+    // […]
+    if _, err := c.PipelineClient.Create(pipeline); err != nil {
+        t.Fatalf("Failed to create Pipeline `%s`: %s", "tomatoes", err)
+    }
+    if _, err := c.PipelineRunClient.Create(pipelineRun); err != nil {
+        t.Fatalf("Failed to create PipelineRun `%s`: %s", "pear", err)
+    }
 }
 ```
 
@@ -291,14 +297,14 @@ _See [clients.go](./clients.go)._
 
 #### Generate random names
 
-You can use the function `AppendRandomString` to create random names for `crd`s
+You can use the function `GenerateName()` to append a random string for `crd`s
 or anything else, so that your tests can use unique names each time they run.
 
 ```go
-namespace := test.AppendRandomString('arendelle')
-```
+import "github.com/knative/build-pipeline/pkg/names"
 
-_See [randstring.go](./randstring.go)._
+namespace := names.SimpleNameGenerator.GenerateName("arendelle")
+```
 
 #### Poll Pipeline resources
 

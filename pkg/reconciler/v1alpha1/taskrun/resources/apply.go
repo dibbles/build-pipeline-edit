@@ -18,9 +18,9 @@ package resources
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/knative/build-pipeline/pkg/apis/pipeline/v1alpha1"
+	"github.com/knative/build-pipeline/pkg/reconciler/v1alpha1/templating"
 	buildv1alpha1 "github.com/knative/build/pkg/apis/build/v1alpha1"
 )
 
@@ -42,18 +42,13 @@ func ApplyParameters(b *buildv1alpha1.Build, tr *v1alpha1.TaskRun, defaults ...v
 	return ApplyReplacements(b, replacements)
 }
 
-// ResourceGetter is the interface used to retrieve resources which are references via a TaskRunResource.
-type ResourceGetter interface {
-	Get(string) (*v1alpha1.PipelineResource, error)
-}
-
 // ApplyResources applies the templating from values in resources which are referenced in b as subitems
 // of the replacementStr. It retrieves the referenced resources via the getter.
-func ApplyResources(b *buildv1alpha1.Build, resources []v1alpha1.TaskResourceBinding, getter ResourceGetter, replacementStr string) (*buildv1alpha1.Build, error) {
+func ApplyResources(b *buildv1alpha1.Build, resources []v1alpha1.TaskResourceBinding, getter GetResource, replacementStr string) (*buildv1alpha1.Build, error) {
 	replacements := map[string]string{}
 
 	for _, r := range resources {
-		pr, err := getter.Get(r.ResourceRef.Name)
+		pr, err := getResource(&r, getter)
 		if err != nil {
 			return nil, err
 		}
@@ -73,33 +68,35 @@ func ApplyResources(b *buildv1alpha1.Build, resources []v1alpha1.TaskResourceBin
 func ApplyReplacements(build *buildv1alpha1.Build, replacements map[string]string) *buildv1alpha1.Build {
 	build = build.DeepCopy()
 
-	applyReplacements := func(in string) string {
-		for k, v := range replacements {
-			in = strings.Replace(in, fmt.Sprintf("${%s}", k), v, -1)
-		}
-		return in
-	}
-
 	// Apply variable expansion to steps fields.
 	steps := build.Spec.Steps
 	for i := range steps {
-		steps[i].Name = applyReplacements(steps[i].Name)
-		steps[i].Image = applyReplacements(steps[i].Image)
+		steps[i].Name = templating.ApplyReplacements(steps[i].Name, replacements)
+		steps[i].Image = templating.ApplyReplacements(steps[i].Image, replacements)
 		for ia, a := range steps[i].Args {
-			steps[i].Args[ia] = applyReplacements(a)
+			steps[i].Args[ia] = templating.ApplyReplacements(a, replacements)
 		}
 		for ie, e := range steps[i].Env {
-			steps[i].Env[ie].Value = applyReplacements(e.Value)
+			steps[i].Env[ie].Value = templating.ApplyReplacements(e.Value, replacements)
 		}
-		steps[i].WorkingDir = applyReplacements(steps[i].WorkingDir)
+		steps[i].WorkingDir = templating.ApplyReplacements(steps[i].WorkingDir, replacements)
 		for ic, c := range steps[i].Command {
-			steps[i].Command[ic] = applyReplacements(c)
+			steps[i].Command[ic] = templating.ApplyReplacements(c, replacements)
 		}
 		for iv, v := range steps[i].VolumeMounts {
-			steps[i].VolumeMounts[iv].Name = applyReplacements(v.Name)
-			steps[i].VolumeMounts[iv].MountPath = applyReplacements(v.MountPath)
-			steps[i].VolumeMounts[iv].SubPath = applyReplacements(v.SubPath)
+			steps[i].VolumeMounts[iv].Name = templating.ApplyReplacements(v.Name, replacements)
+			steps[i].VolumeMounts[iv].MountPath = templating.ApplyReplacements(v.MountPath, replacements)
+			steps[i].VolumeMounts[iv].SubPath = templating.ApplyReplacements(v.SubPath, replacements)
 		}
 	}
+
+	// Apply variable expansion to the build's volumes
+	for i, v := range build.Spec.Volumes {
+		build.Spec.Volumes[i].Name = templating.ApplyReplacements(v.Name, replacements)
+		if v.VolumeSource.ConfigMap != nil {
+			build.Spec.Volumes[i].ConfigMap.Name = templating.ApplyReplacements(v.ConfigMap.Name, replacements)
+		}
+	}
+
 	return build
 }
